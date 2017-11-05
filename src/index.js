@@ -6,6 +6,7 @@ class HlsjsIPFSLoader {
   constructor(config) {
     this.ipfs = config.ipfs
     this.hash = config.ipfsHash
+    this.gateway = config.gateway || 'https://gateway.paratii.video'
   }
 
   destroy() {
@@ -68,7 +69,7 @@ class HlsjsIPFSLoader {
     let xhr = new XMLHttpRequest()
     let context = this.context
     try {
-      xhr.open('GET', 'http://localhost:9090/ipfs/'+rootHash+'/'+filename, true)
+      xhr.open('GET', this.gateway + '/ipfs/' + rootHash + '/' + filename, true)
     } catch (e) {
       this.callbacks.onError({ code : xhr.status, text: e.message }, context, xhr)
       // callback({ code: xhr.status, text: e.message })
