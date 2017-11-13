@@ -8,6 +8,9 @@ class HlsjsIPFSLoader {
     this.hash = config.ipfsHash
     this.gateway = config.gateway || 'https://gateway.paratii.video'
     this.DAG = null
+    this.getDAG(() => {
+      console.log('HLSjs IPFS READY')
+    })
   }
 
   destroy () {
@@ -33,7 +36,7 @@ class HlsjsIPFSLoader {
 
     var urlParts = context.url.split('/')
     var filename = urlParts[urlParts.length - 1]
-    if (this.ipfs && this.ipfs.isOnline()) {
+    if (this.ipfs && this.ipfs.isOnline() && this.DAG !== null) {
       this.catFile(filename, (err, res) => {
         if (err) {
           console.log(err)
