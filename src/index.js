@@ -3,19 +3,20 @@
 const _ = require('lodash')
 
 class HlsjsIPFSLoader {
-  constructor(config) {
+  constructor (config) {
     this.ipfs = config.ipfs
     this.hash = config.ipfsHash
     this.gateway = config.gateway || 'https://gateway.paratii.video'
+    this.DAG = null
   }
 
-  destroy() {
+  destroy () {
   }
 
-  abort() {
+  abort () {
   }
 
-  load(context, config, callbacks) {
+  load (context, config, callbacks) {
     this.context = context
     this.config = config
     this.callbacks = callbacks
@@ -24,25 +25,22 @@ class HlsjsIPFSLoader {
     this.loadInternal()
   }
 
-  loadInternal() {
-    var stats = this.stats,
-        context = this.context,
-        config = this.config,
-        callbacks = this.callbacks
+  loadInternal () {
+    var stats = this.stats, context = this.context, config = this.config, callbacks = this.callbacks
 
     stats.tfirst = Math.max(performance.now(), stats.trequest)
     stats.loaded = 0
 
-    var urlParts = context.url.split("/")
+    var urlParts = context.url.split('/')
     var filename = urlParts[urlParts.length - 1]
     if (this.ipfs && this.ipfs.isOnline()) {
-      getFile(this.ipfs, this.hash, filename, function(err, res) {
+      this.catFile(filename, (err, res) => {
         if (err) {
-          console.log(err);
+          console.log(err)
           return
         }
 
-        var data,len
+        var data, len
         if (context.responseType === 'arraybuffer') {
           data = res
           len = res.length
@@ -55,28 +53,26 @@ class HlsjsIPFSLoader {
         var response = { url: context.url, data: data }
         callbacks.onSuccess(response, stats, context)
       })
-
     } else {
       this.getFileXHR(this.hash, filename)
-
     }
   }
 
   getFileXHR (rootHash, filename, callback) {
     // if (!callback) callback = function (err, res) {}
-    console.log("XHR hash for '" + rootHash + "/" + filename + "'")
+    console.log('XHR hash for \'' + rootHash + '/' + filename + '\'')
 
     let xhr = new XMLHttpRequest()
     let context = this.context
     try {
       xhr.open('GET', this.gateway + '/ipfs/' + rootHash + '/' + filename, true)
     } catch (e) {
-      this.callbacks.onError({ code : xhr.status, text: e.message }, context, xhr)
+      this.callbacks.onError({ code: xhr.status, text: e.message }, context, xhr)
       // callback({ code: xhr.status, text: e.message })
     }
 
     if (context.rangeEnd) {
-      xhr.setRequestHeader('Range','bytes=' + context.rangeStart + '-' + (context.rangeEnd-1));
+      xhr.setRequestHeader('Range', 'bytes=' + context.rangeStart + '-' + (context.rangeEnd-1));
     }
 
     xhr.onreadystatechange = this.readystatechange.bind(this)
@@ -167,11 +163,83 @@ class HlsjsIPFSLoader {
       onProgress(stats, this.context, null, xhr)
     }
   }
+
+  getDAG (callback) {
+    if (!callback) callback = () => {}
+
+    if (this.DAG && this.DAG !== null) {
+      return callback(null, this.DAG)
+    }
+    console.log('getting Object DAG ' + this.hash)
+    this.ipfs.object.get(this.hash, (err, res) => {
+      if (err) throw err
+      this.DAG = res.links
+
+      callback(null, res.links)
+    })
+  }
+
+  getFileInfo (filename) {
+    if (!filename) {
+      return
+    }
+
+    var hash = null
+    var fileSize, fileName
+
+    _.each(this.DAG, (link) => {
+      if (link.name === filename) {
+        hash = link.multihash
+        fileSize = link.size
+        fileName = link.name
+        return false
+      }
+    })
+
+    return {hash, fileSize, fileName}
+  }
+
+  catFile (filename, callback) {
+    if (!callback) callback = () => {}
+    var {hash, fileSize, fileName} = this.getFileInfo(filename)
+
+    console.log('Fetching hash for \'' + this.hash + '/' + filename + '\'')
+
+    if (!hash) {
+      var msg = 'File not found: ' + this.hash + '/' + filename
+      return callback(new Error(msg), null)
+    }
+
+    console.log('Requesting \'' + this.hash + '/' + filename + '\'')
+
+    var resBuf = new ArrayBuffer(fileSize)
+    var bufView = new Uint8Array(resBuf)
+    var offs = 0
+
+    this.ipfs.files.cat(hash, (err, stream) => {
+      console.log('Received stream for file \'' + this.hash + '/' + fileName + '\'')
+      if (err) return callback(err)
+      stream.on('data', (chunk) => {
+        console.log('Received ' + chunk.length + ' bytes for file \'' +
+          this.hash + '/' + fileName + '\'')
+        bufView.set(chunk, offs)
+        offs += chunk.length
+      })
+
+      stream.on('error', (err) => {
+        callback(err, null)
+      })
+
+      stream.on('end', () => {
+        callback(null, resBuf)
+      })
+    })
+  }
 }
 
 // function getFile(ipfs, rootHash, filename, callback) {
 //   if (!callback) callback = function (err, res) {}
-//   console.log("Fetching hash for '" + rootHash + "/" + filename + "'")
+//   console.log('Fetching hash for '' + rootHash + '/' + filename + ''')
 //   ipfs.object.get(rootHash, function(err, res) {
 //     if (err) return callback(err)
 //
@@ -188,23 +256,23 @@ class HlsjsIPFSLoader {
 //     });
 //
 //     if (!hash) {
-//       var msg = "File not found: " + rootHash + "/" + filename
+//       var msg = 'File not found: ' + rootHash + '/' + filename
 //       return callback(new Error(msg), null)
 //     }
 //
-//     console.log("Requesting '" + rootHash + "/" + filename + "'")
+//     console.log('Requesting '' + rootHash + '/' + filename + ''')
 //
 //     var resBuf = new ArrayBuffer(fileSize)
 //     var bufView = new Uint8Array(resBuf)
 //     var offs = 0
 //
 //     ipfs.files.cat(hash, function (err, stream) {
-//       console.log("Received stream for file '" + rootHash + "/" +
-//         fileName + "'")
+//       console.log('Received stream for file '' + rootHash + '/' +
+//         fileName + ''')
 //       if (err) return callback(err)
 //       stream.on('data', function (chunk) {
-//         console.log("Received " + chunk.length + " bytes for file '" +
-//           rootHash + "/" + fileName + "'")
+//         console.log('Received ' + chunk.length + ' bytes for file '' +
+//           rootHash + '/' + fileName + ''')
 //         bufView.set(chunk, offs)
 //         offs += chunk.length
 //       });
@@ -218,56 +286,56 @@ class HlsjsIPFSLoader {
 //   });
 // }
 
-function getFile(ipfs, rootHash, filename, callback) {
-  if (!callback) callback = function (err, res) {}
-  console.log("Fetching hash for '" + rootHash + "/" + filename + "'")
-  ipfs.object.get(rootHash, function(err, res) {
-    if (err) return callback(err)
+// function getFile(ipfs, rootHash, filename, callback) {
+//   if (!callback) callback = function (err, res) {}
+//   console.log('Fetching hash for '' + rootHash + '/' + filename + ''')
+//   ipfs.object.get(rootHash, function(err, res) {
+//     if (err) return callback(err)
+//
+//     var hash = null
+//     var fileSize, fileName
+//
+//     _.each(res.links, function(link) {
+//       if (link.name === filename) {
+//         hash = link.multihash
+//         fileSize = link.size
+//         fileName = link.name
+//         return false
+//       }
+//     });
+//
+//     if (!hash) {
+//       var msg = 'File not found: ' + rootHash + '/' + filename
+//       return callback(new Error(msg), null)
+//     }
+//
+//     console.log('Requesting '' + rootHash + '/' + filename + ''')
+//
+//     var resBuf = new ArrayBuffer(fileSize)
+//     var bufView = new Uint8Array(resBuf)
+//     var offs = 0
+//
+//     ipfs.files.cat(hash, function (err, stream) {
+//       console.log('Received stream for file '' + rootHash + '/' +
+//         fileName + ''')
+//       if (err) return callback(err)
+//       stream.on('data', function (chunk) {
+//         console.log('Received ' + chunk.length + ' bytes for file '' +
+//           rootHash + '/' + fileName + ''')
+//         bufView.set(chunk, offs)
+//         offs += chunk.length
+//       });
+//       stream.on('error', function (err) {
+//         callback(err, null)
+//       });
+//       stream.on('end', function () {
+//         callback(null, resBuf)
+//       });
+//     })
+//   });
+// }
 
-    var hash = null
-    var fileSize, fileName
-
-    _.each(res.links, function(link) {
-      if (link.name === filename) {
-        hash = link.multihash
-        fileSize = link.size
-        fileName = link.name
-        return false
-      }
-    });
-
-    if (!hash) {
-      var msg = "File not found: " + rootHash + "/" + filename
-      return callback(new Error(msg), null)
-    }
-
-    console.log("Requesting '" + rootHash + "/" + filename + "'")
-
-    var resBuf = new ArrayBuffer(fileSize)
-    var bufView = new Uint8Array(resBuf)
-    var offs = 0
-
-    ipfs.files.cat(hash, function (err, stream) {
-      console.log("Received stream for file '" + rootHash + "/" +
-        fileName + "'")
-      if (err) return callback(err)
-      stream.on('data', function (chunk) {
-        console.log("Received " + chunk.length + " bytes for file '" +
-          rootHash + "/" + fileName + "'")
-        bufView.set(chunk, offs)
-        offs += chunk.length
-      });
-      stream.on('error', function (err) {
-        callback(err, null)
-      });
-      stream.on('end', function () {
-        callback(null, resBuf)
-      });
-    })
-  });
-}
-
-function buf2str(buf) {
+function buf2str (buf) {
   return String.fromCharCode.apply(null, new Uint8Array(buf))
 }
 
