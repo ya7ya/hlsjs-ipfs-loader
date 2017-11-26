@@ -36,25 +36,28 @@ class HlsjsIPFSLoader {
 
     var urlParts = context.url.split('/')
     var filename = urlParts[urlParts.length - 1]
-    if (this.ipfs && this.ipfs.isOnline() && this.DAG !== null) {
-      this.catFile(filename, (err, res) => {
-        if (err) {
-          console.log(err)
-          return
-        }
+    console.log('this.DAG: ', this.DAG)
+    if (this.ipfs && this.ipfs.isOnline()) {
+      this.getDAG(() => {
+        this.catFile(filename, (err, res) => {
+          if (err) {
+            console.log(err)
+            return
+          }
 
-        var data, len
-        if (context.responseType === 'arraybuffer') {
-          data = res
-          len = res.length
-        } else {
-          data = buf2str(res)
-          len = data.length
-        }
-        stats.loaded = stats.total = len
-        stats.tload = Math.max(stats.tfirst, performance.now())
-        var response = { url: context.url, data: data }
-        callbacks.onSuccess(response, stats, context)
+          var data, len
+          if (context.responseType === 'arraybuffer') {
+            data = res
+            len = res.length
+          } else {
+            data = buf2str(res)
+            len = data.length
+          }
+          stats.loaded = stats.total = len
+          stats.tload = Math.max(stats.tfirst, performance.now())
+          var response = { url: context.url, data: data }
+          callbacks.onSuccess(response, stats, context)
+        })
       })
     } else {
       this.getFileXHR(this.hash, filename)
@@ -169,6 +172,9 @@ class HlsjsIPFSLoader {
 
   getDAG (callback) {
     if (!callback) callback = () => {}
+    if (!this.ipfs) {
+      return callback(null)
+    }
 
     if (this.DAG && this.DAG !== null) {
       return callback(null, this.DAG)
