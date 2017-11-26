@@ -8,9 +8,11 @@ class HlsjsIPFSLoader {
     this.hash = config.ipfsHash
     this.gateway = config.gateway || 'https://gateway.paratii.video'
     this.DAG = null
-    this.getDAG(() => {
-      console.log('HLSjs IPFS READY')
-    })
+    if (this.ipfs && this.ipfs.isOnline()) {
+      this.getDAG(() => {
+        console.log('HLSjs IPFS READY')
+      })
+    }
   }
 
   destroy () {
