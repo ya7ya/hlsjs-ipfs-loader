@@ -2,6 +2,12 @@
 
 const _ = require('lodash')
 const StreamSpeed = require('streamspeed')
+var performance = {
+  speed: 0,
+  now: () => {
+    return performance.speed
+  }
+}
 
 class HlsjsIPFSLoader {
   constructor (config) {
@@ -235,6 +241,7 @@ class HlsjsIPFSLoader {
       // Listen for events emitted by streamspeed on the given stream.
       ss.on('speed', (speed, avgSpeed) => {
         console.log('Reading at', speed, 'bytes per second')
+        performance.speed = speed
       })
 
       console.log('Received stream for file \'' + this.hash + '/' + fileName + '\'')
