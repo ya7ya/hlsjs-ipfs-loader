@@ -1,6 +1,7 @@
 'use strict'
 
 const _ = require('lodash')
+const StreamSpeed = require('streamspeed')
 
 class HlsjsIPFSLoader {
   constructor (config) {
@@ -226,8 +227,16 @@ class HlsjsIPFSLoader {
     var resBuf = new ArrayBuffer(fileSize)
     var bufView = new Uint8Array(resBuf)
     var offs = 0
+    var ss = new StreamSpeed()
 
     this.ipfs.files.cat(hash, (err, stream) => {
+      ss.add(stream)
+
+      // Listen for events emitted by streamspeed on the given stream.
+      ss.on('speed', (speed, avgSpeed) => {
+        console.log('Reading at', speed, 'bytes per second')
+      })
+
       console.log('Received stream for file \'' + this.hash + '/' + fileName + '\'')
       if (err) return callback(err)
       stream.on('data', (chunk) => {
