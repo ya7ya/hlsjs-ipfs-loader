@@ -8,6 +8,7 @@ var performance = {
     return performance.speed
   }
 }
+console.log('npm linked :)3')
 
 class HlsjsIPFSLoader {
   constructor (config) {
@@ -23,9 +24,11 @@ class HlsjsIPFSLoader {
   }
 
   destroy () {
+    console.log('hlsjs-ipfs-loader DESTROY')
   }
 
   abort () {
+    console.log('hlsjs-ipfs-loader ABORTED')
   }
 
   load (context, config, callbacks) {
@@ -42,6 +45,7 @@ class HlsjsIPFSLoader {
 
     stats.tfirst = Math.max(performance.now(), stats.trequest)
     stats.loaded = 0
+    console.log('performance: ', performance)
 
     var urlParts = context.url.split('/')
     var filename = urlParts[urlParts.length - 1]
@@ -64,6 +68,8 @@ class HlsjsIPFSLoader {
           }
           stats.loaded = stats.total = len
           stats.tload = Math.max(stats.tfirst, performance.now())
+          console.log('performance: ', performance.now())
+
           var response = { url: context.url, data: data }
           callbacks.onSuccess(response, stats, context)
         })
