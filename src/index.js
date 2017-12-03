@@ -1,43 +1,63 @@
 'use strict'
 
 const _ = require('lodash')
+const { EventEmitter } = require('events')
 const StreamSpeed = require('streamspeed')
-var performance = {
-  speed: 0,
-  now: () => {
-    return performance.speed
-  }
-}
-console.log('npm linked :)3')
+// var performance = {
+//   speed: 0,
+//   now: () => {
+//     return performance.speed
+//   }
+// }
+console.log('npm linked :)3, perforamnce: ', performance.now())
 
-class HlsjsIPFSLoader {
+class HlsjsIPFSLoader extends EventEmitter {
   constructor (config) {
+    super()
     this.ipfs = config.ipfs
     this.hash = config.ipfsHash
     this.gateway = config.gateway || 'https://gateway.paratii.video'
-    this.DAG = null
+    this.emitter = config.emitter || this
+    this.DAG = config.dag || null
+    console.log('-------------------------DAG---------------------\n', this.DAG)
     if (this.ipfs && this.ipfs.isOnline()) {
       this.getDAG(() => {
-        console.log('HLSjs IPFS READY')
+        console.log('HLSjs IPFS LOADER READY')
       })
     }
   }
 
   destroy () {
     console.log('hlsjs-ipfs-loader DESTROY')
+    this.emitter.emit('loader-status', {
+      timestamp: Date.now(),
+      event: 'destroy'
+    })
   }
 
   abort () {
     console.log('hlsjs-ipfs-loader ABORTED')
+    this.emitter.emit('loader-status', {
+      timestamp: Date.now(),
+      event: 'abort'
+    })
   }
 
   load (context, config, callbacks) {
     this.context = context
+    if (this.context && !this.context.progressData) {
+      this.context.progressData = true
+    }
+    console.log('context: ', this.context)
     this.config = config
     this.callbacks = callbacks
     this.stats = { trequest: performance.now(), retry: 0 }
     this.retryDelay = config.retryDelay
     this.loadInternal()
+    this.emitter.emit('loader-status', {
+      timestamp: Date.now(),
+      event: 'loading-internals'
+    })
   }
 
   loadInternal () {
@@ -128,7 +148,7 @@ class HlsjsIPFSLoader {
         let status = xhr.status;
         // http status between 200 to 299 are all successful
         if (status >= 200 && status < 300)  {
-          stats.tload = Math.max(stats.tfirst,performance.now())
+          stats.tload = Math.max(stats.tfirst, performance.now())
           let data,len
           if (context.responseType === 'arraybuffer') {
             data = xhr.response
@@ -167,6 +187,12 @@ class HlsjsIPFSLoader {
 
   loadtimeout () {
     console.warn(`timeout while loading ${this.context.url}`)
+    this.emitter.emit('loader-status', {
+      timestamp: Date.now(),
+      event: 'timeout',
+      stats: this.stats,
+      context: this.context
+    })
     this.callbacks.onTimeout(this.stats, this.context, null)
   }
 
@@ -180,6 +206,12 @@ class HlsjsIPFSLoader {
     }
     let onProgress = this.callbacks.onProgress
     if (onProgress) {
+      this.emitter.emit('loader-status', {
+        timestamp: Date.now(),
+        event: 'progress',
+        stats: stats,
+        context: this.context
+      })
       // third arg is to provide on progress data
       onProgress(stats, this.context, null, xhr)
     }
@@ -192,12 +224,18 @@ class HlsjsIPFSLoader {
     }
 
     if (this.DAG && this.DAG !== null) {
+      console.log('dag is already availlable')
       return callback(null, this.DAG)
     }
-    console.log('getting Object DAG ' + this.hash)
+    // console.log('getting Object DAG ' + this.hash)
     this.ipfs.object.get(this.hash, (err, res) => {
       if (err) throw err
       this.DAG = res.links
+      this.emitter.emit('loader-status', {
+        timestamp: Date.now(),
+        event: 'DAG',
+        DAG: res.links
+      })
 
       callback(null, res.links)
     })
@@ -241,31 +279,46 @@ class HlsjsIPFSLoader {
     var offs = 0
     var ss = new StreamSpeed()
 
-    this.ipfs.files.cat(hash, (err, stream) => {
-      ss.add(stream)
+    const stream = this.ipfs.files.catReadableStream(hash)
 
-      // Listen for events emitted by streamspeed on the given stream.
-      ss.on('speed', (speed, avgSpeed) => {
-        console.log('Reading at', speed, 'bytes per second')
-        performance.speed = speed
+    // this.ipfs.files.cat(hash, (err, stream) => {
+    //   // ss.add(stream)
+    //   //
+    //   // // Listen for events emitted by streamspeed on the given stream.
+    //   // ss.on('speed', (speed, avgSpeed) => {
+    //   //   console.log('Reading at', speed, 'bytes per second')
+    //   //   // performance.speed = speed
+    //   //
+    //   //   this.emitter.emit('loader-status', {
+    //   //     timestamp: Date.now(),
+    //   //     event: 'speed',
+    //   //     speed: speed,
+    //   //     avgSpeed: avgSpeed
+    //   //   })
+    //   // })
+    //
+    //   console.log('Received stream for file \'' + this.hash + '/' + fileName + '\'')
+    //   if (err) return callback(err)
+    // })
+    stream.on('data', (chunk) => {
+      console.log('Received ' + chunk.length + ' bytes for file \'' +
+      this.hash + '/' + fileName + '\'')
+      bufView.set(chunk, offs)
+      offs += chunk.length
+      this.loadprogress({
+        currentTarget: hash,
+        loaded: resBuf.length
       })
+    })
 
-      console.log('Received stream for file \'' + this.hash + '/' + fileName + '\'')
-      if (err) return callback(err)
-      stream.on('data', (chunk) => {
-        console.log('Received ' + chunk.length + ' bytes for file \'' +
-          this.hash + '/' + fileName + '\'')
-        bufView.set(chunk, offs)
-        offs += chunk.length
-      })
+    // stream.on('data', this.loadprogress.bind(this))
 
-      stream.on('error', (err) => {
-        callback(err, null)
-      })
+    stream.on('error', (err) => {
+      callback(err, null)
+    })
 
-      stream.on('end', () => {
-        callback(null, resBuf)
-      })
+    stream.on('end', () => {
+      callback(null, resBuf)
     })
   }
 }
