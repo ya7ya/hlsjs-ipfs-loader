@@ -19,10 +19,16 @@ class HlsjsIPFSLoader extends EventEmitter {
     this.gateway = config.gateway || 'https://gateway.paratii.video'
     this.emitter = config.emitter || this
     this.DAG = config.dag || null
+    this.peers = []
     console.log('-------------------------DAG---------------------\n', this.DAG)
     if (this.ipfs && this.ipfs.isOnline()) {
       this.getDAG(() => {
         console.log('HLSjs IPFS LOADER READY')
+      })
+
+      this.getPeersArray((err, peers) => {
+        if (err) return console.log('hlsjs getPeersArray Error ', err)
+        this.peers = peers
       })
     }
   }
@@ -69,8 +75,8 @@ class HlsjsIPFSLoader extends EventEmitter {
 
     var urlParts = context.url.split('/')
     var filename = urlParts[urlParts.length - 1]
-    console.log('this.DAG: ', this.DAG)
-    if (this.ipfs && this.ipfs.isOnline()) {
+    console.log('this.DAG: ', this.DAG, '\nthis.peers: ', this.peers)
+    if (this.ipfs && this.ipfs.isOnline() && this.peers.length > 7) {
       this.getDAG(() => {
         this.catFile(filename, (err, res) => {
           if (err) {
@@ -238,6 +244,22 @@ class HlsjsIPFSLoader extends EventEmitter {
       })
 
       callback(null, res.links)
+    })
+  }
+
+  getPeersArray (callback) {
+    if (!callback) callback = () => {}
+    if (!this.ipfs) {
+      return callback(null)
+    }
+
+    this.ipfs.swarm.peers((err, peers) => {
+      if (err) {
+        return callback(err)
+      }
+
+      this.peers = peers
+      callback(null, peers)
     })
   }
 
