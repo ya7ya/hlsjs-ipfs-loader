@@ -1,15 +1,9 @@
 'use strict'
+global.Buffer = global.Buffer || require('buffer').Buffer
 
 const _ = require('lodash')
 const { EventEmitter } = require('events')
-const StreamSpeed = require('streamspeed')
-// var performance = {
-//   speed: 0,
-//   now: () => {
-//     return performance.speed
-//   }
-// }
-console.log('npm linked :)3, perforamnce: ', performance.now())
+const debug = require('debug')('paratii:hlsjs')
 
 class HlsjsIPFSLoader extends EventEmitter {
   constructor (config) {
@@ -20,11 +14,11 @@ class HlsjsIPFSLoader extends EventEmitter {
     this.emitter = config.emitter || this
     this.DAG = config.dag || null
     this.peers = []
-    console.log('-------------------------DAG---------------------\n', this.DAG)
+    // console.log('-------------------------DAG---------------------\n', this.DAG)
     if (this.ipfs && this.ipfs.isOnline()) {
-      this.getDAG(() => {
-        console.log('HLSjs IPFS LOADER READY')
-      })
+      // this.getDAG(() => {
+      //   console.log('HLSjs IPFS LOADER READY')
+      // })
 
       this.getPeersArray((err, peers) => {
         if (err) return console.log('hlsjs getPeersArray Error ', err)
@@ -34,19 +28,31 @@ class HlsjsIPFSLoader extends EventEmitter {
   }
 
   destroy () {
-    console.log('hlsjs-ipfs-loader DESTROY')
+    debug('hlsjs-ipfs-loader DESTROY')
     this.emitter.emit('loader-status', {
       timestamp: Date.now(),
       event: 'destroy'
     })
+
+    if (this.stream) {
+      this.stream.destroy()
+    }
   }
 
   abort () {
-    console.log('hlsjs-ipfs-loader ABORTED')
+    debug('hlsjs-ipfs-loader ABORTED')
     this.emitter.emit('loader-status', {
       timestamp: Date.now(),
       event: 'abort'
     })
+
+    if (this.stream) {
+      if (this.stream.destroy) {
+        this.stream.destroy()
+      } else {
+        this.stream.end()
+      }
+    }
   }
 
   load (context, config, callbacks) {
@@ -54,7 +60,7 @@ class HlsjsIPFSLoader extends EventEmitter {
     if (this.context && !this.context.progressData) {
       this.context.progressData = true
     }
-    console.log('context: ', this.context)
+    debug('context: ', this.context)
     this.config = config
     this.callbacks = callbacks
     this.stats = { trequest: performance.now(), retry: 0 }
@@ -71,35 +77,38 @@ class HlsjsIPFSLoader extends EventEmitter {
 
     stats.tfirst = Math.max(performance.now(), stats.trequest)
     stats.loaded = 0
-    console.log('performance: ', performance)
+    debug('performance: ', performance)
 
     var urlParts = context.url.split('/')
     var filename = urlParts[urlParts.length - 1]
-    console.log('this.DAG: ', this.DAG, '\nthis.peers: ', this.peers)
-    if (this.ipfs && this.ipfs.isOnline() && this.peers.length > 7) {
-      this.getDAG(() => {
-        this.catFile(filename, (err, res) => {
-          if (err) {
-            console.log(err)
-            return
-          }
+    // console.log('this.DAG: ', this.DAG, '\nthis.peers: ', this.peers)
+    if (this.ipfs && this.ipfs.isOnline() && this.peers.length > 3) {
+      // this.getDAG(() => {
+      this.catFile('/ipfs/' + this.hash + '/' + filename, (err, res) => {
+        if (err) {
+          console.log(err)
+          return
+        }
 
-          var data, len
+        var data, len
+        if (res) {
           if (context.responseType === 'arraybuffer') {
+            debug('response: ', res)
             data = res
             len = res.length
           } else {
             data = buf2str(res)
             len = data.length
           }
-          stats.loaded = stats.total = len
-          stats.tload = Math.max(stats.tfirst, performance.now())
-          console.log('performance: ', performance.now())
+        }
+        stats.loaded = stats.total = len
+        stats.tload = Math.max(stats.tfirst, performance.now())
+        debug('performance: ', performance.now())
 
-          var response = { url: context.url, data: data }
-          callbacks.onSuccess(response, stats, context)
-        })
+        var response = { url: context.url, data: data }
+        callbacks.onSuccess(response, stats, context)
       })
+      // })
     } else {
       this.getFileXHR(this.hash, filename)
     }
@@ -107,7 +116,7 @@ class HlsjsIPFSLoader extends EventEmitter {
 
   getFileXHR (rootHash, filename, callback) {
     // if (!callback) callback = function (err, res) {}
-    console.log('XHR hash for \'' + rootHash + '/' + filename + '\'')
+    debug('XHR hash for \'' + rootHash + '/' + filename + '\'')
 
     let xhr = new XMLHttpRequest()
     let context = this.context
@@ -230,7 +239,7 @@ class HlsjsIPFSLoader extends EventEmitter {
     }
 
     if (this.DAG && this.DAG !== null) {
-      console.log('dag is already availlable')
+      debug('dag is already availlable')
       return callback(null, this.DAG)
     }
     // console.log('getting Object DAG ' + this.hash)
@@ -285,24 +294,24 @@ class HlsjsIPFSLoader extends EventEmitter {
 
   catFile (filename, callback) {
     if (!callback) callback = () => {}
-    var {hash, fileSize, fileName} = this.getFileInfo(filename)
+    // var {hash, fileSize, fileName} = this.getFileInfo(filename)
 
-    console.log('Fetching hash for \'' + this.hash + '/' + filename + '\'')
+    debug('Fetching hash for \'' + filename + '\'')
 
-    if (!hash) {
-      var msg = 'File not found: ' + this.hash + '/' + filename
-      return callback(new Error(msg), null)
-    }
+    // if (!hash) {
+    //   var msg = 'File not found: ' + this.hash + '/' + filename
+    //   return callback(new Error(msg), null)
+    // }
 
-    console.log('Requesting \'' + this.hash + '/' + filename + '\'')
+    debug('Requesting \'' + filename + '\'')
 
-    var resBuf = new ArrayBuffer(fileSize)
-    var bufView = new Uint8Array(resBuf)
+    var resBuf = null
+    // var bufView = new Uint8Array()
     var offs = 0
-    var ss = new StreamSpeed()
+    // var ss = new StreamSpeed()
 
-    const stream = this.ipfs.files.catReadableStream(hash)
-
+    this.stream = this.ipfs.files.catReadableStream(filename)
+    debug('this.stream : ', this.stream)
     // this.ipfs.files.cat(hash, (err, stream) => {
     //   // ss.add(stream)
     //   //
@@ -322,24 +331,31 @@ class HlsjsIPFSLoader extends EventEmitter {
     //   console.log('Received stream for file \'' + this.hash + '/' + fileName + '\'')
     //   if (err) return callback(err)
     // })
-    stream.on('data', (chunk) => {
-      console.log('Received ' + chunk.length + ' bytes for file \'' +
-      this.hash + '/' + fileName + '\'')
-      bufView.set(chunk, offs)
+    this.stream.on('data', (chunk) => {
+      debug('Received ' + chunk.length + ' bytes for file \'' +
+      filename + '\'')
+      if (Buffer.isBuffer(resBuf)) {
+        resBuf = Buffer.concat([resBuf, chunk])
+      } else {
+        resBuf = Buffer.from(chunk)
+      }
+      // bufView.set(chunk, offs)
       offs += chunk.length
       this.loadprogress({
-        currentTarget: hash,
-        loaded: resBuf.length
+        currentTarget: filename,
+        loaded: offs
       })
     })
 
     // stream.on('data', this.loadprogress.bind(this))
 
-    stream.on('error', (err) => {
+    this.stream.on('error', (err) => {
+      debug('stream error ', err)
       callback(err, null)
     })
 
-    stream.on('end', () => {
+    this.stream.on('end', () => {
+      debug('STREAM ENDED, resBuf Length: ', resBuf)
       callback(null, resBuf)
     })
   }
