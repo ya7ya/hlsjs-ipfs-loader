@@ -19,6 +19,6 @@
   "dependencies": {
     "aegir": "^11.0.2",
     "gulp": "^3.9.1",
-    "lodash": "^4.17.4"
+    "lodash.foreach": "^4.5.0"
   }
 }
