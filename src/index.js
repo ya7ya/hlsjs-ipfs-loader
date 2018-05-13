@@ -3,8 +3,6 @@ global.Buffer = global.Buffer || require('buffer').Buffer
 
 const { EventEmitter } = require('events')
 const debug = require('debug')('paratii:hlsjs')
-const forEach = require('lodash.foreach')
-
 class HlsjsIPFSLoader extends EventEmitter {
   constructor (config) {
     super()
@@ -280,7 +278,8 @@ class HlsjsIPFSLoader extends EventEmitter {
     var hash = null
     var fileSize, fileName
 
-    forEach(this.DAG, (link) => {
+    Object.keys(this.DAG).forEach((key) => {
+      var link = this.DAG[key]
       if (link.name === filename) {
         hash = link.multihash
         fileSize = link.size
