@@ -1,7 +1,5 @@
 'use strict'
 
-const forEach = require('lodash.foreach')
-
 class HlsjsIPFSLoader {
   constructor (config) {
     this.ipfs = config.ipfs
@@ -198,7 +196,8 @@ class HlsjsIPFSLoader {
     var hash = null
     var fileSize, fileName
 
-    forEach(this.DAG, (link) => {
+    Object.keys(this.DAG).forEach((key) => {
+      var link = this.DAG[key]
       if (link.name === filename) {
         hash = link.multihash
         fileSize = link.size
