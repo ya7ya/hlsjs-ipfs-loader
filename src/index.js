@@ -1,9 +1,9 @@
 'use strict'
 global.Buffer = global.Buffer || require('buffer').Buffer
 
-const _ = require('lodash')
 const { EventEmitter } = require('events')
 const debug = require('debug')('paratii:hlsjs')
+const forEach = require('lodash.foreach')
 
 class HlsjsIPFSLoader extends EventEmitter {
   constructor (config) {
@@ -280,7 +280,7 @@ class HlsjsIPFSLoader extends EventEmitter {
     var hash = null
     var fileSize, fileName
 
-    _.each(this.DAG, (link) => {
+    forEach(this.DAG, (link) => {
       if (link.name === filename) {
         hash = link.multihash
         fileSize = link.size
