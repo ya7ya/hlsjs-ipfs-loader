@@ -1,31 +1,73 @@
 'use strict'
+global.Buffer = global.Buffer || require('buffer').Buffer
 
-class HlsjsIPFSLoader {
+const { EventEmitter } = require('events')
+const debug = require('debug')('paratii:hlsjs')
+class HlsjsIPFSLoader extends EventEmitter {
   constructor (config) {
+    super()
     this.ipfs = config.ipfs
     this.hash = config.ipfsHash
     this.gateway = config.gateway || 'https://gateway.paratii.video'
-    this.DAG = null
+    this.emitter = config.emitter || this
+    this.DAG = config.dag || null
+    this.peers = []
+    // console.log('-------------------------DAG---------------------\n', this.DAG)
     if (this.ipfs && this.ipfs.isOnline()) {
-      this.getDAG(() => {
-        console.log('HLSjs IPFS READY')
+      // this.getDAG(() => {
+      //   console.log('HLSjs IPFS LOADER READY')
+      // })
+
+      this.getPeersArray((err, peers) => {
+        if (err) return console.log('hlsjs getPeersArray Error ', err)
+        this.peers = peers
       })
     }
   }
 
   destroy () {
+    debug('hlsjs-ipfs-loader DESTROY')
+    this.emitter.emit('loader-status', {
+      timestamp: Date.now(),
+      event: 'destroy'
+    })
+
+    if (this.stream) {
+      this.stream.destroy()
+    }
   }
 
   abort () {
+    debug('hlsjs-ipfs-loader ABORTED')
+    this.emitter.emit('loader-status', {
+      timestamp: Date.now(),
+      event: 'abort'
+    })
+
+    if (this.stream) {
+      if (this.stream.destroy) {
+        this.stream.destroy()
+      } else {
+        this.stream.end()
+      }
+    }
   }
 
   load (context, config, callbacks) {
     this.context = context
+    if (this.context && !this.context.progressData) {
+      this.context.progressData = true
+    }
+    debug('context: ', this.context)
     this.config = config
     this.callbacks = callbacks
     this.stats = { trequest: performance.now(), retry: 0 }
     this.retryDelay = config.retryDelay
     this.loadInternal()
+    this.emitter.emit('loader-status', {
+      timestamp: Date.now(),
+      event: 'loading-internals'
+    })
   }
 
   loadInternal () {
@@ -33,32 +75,38 @@ class HlsjsIPFSLoader {
 
     stats.tfirst = Math.max(performance.now(), stats.trequest)
     stats.loaded = 0
+    debug('performance: ', performance)
 
     var urlParts = context.url.split('/')
     var filename = urlParts[urlParts.length - 1]
-    console.log('this.DAG: ', this.DAG)
-    if (this.ipfs && this.ipfs.isOnline()) {
-      this.getDAG(() => {
-        this.catFile(filename, (err, res) => {
-          if (err) {
-            console.log(err)
-            return
-          }
+    // console.log('this.DAG: ', this.DAG, '\nthis.peers: ', this.peers)
+    if (this.ipfs && this.ipfs.isOnline() && this.peers.length > 3) {
+      // this.getDAG(() => {
+      this.catFile('/ipfs/' + this.hash + '/' + filename, (err, res) => {
+        if (err) {
+          console.log(err)
+          return
+        }
 
-          var data, len
+        var data, len
+        if (res) {
           if (context.responseType === 'arraybuffer') {
+            debug('response: ', res)
             data = res
             len = res.length
           } else {
             data = buf2str(res)
             len = data.length
           }
-          stats.loaded = stats.total = len
-          stats.tload = Math.max(stats.tfirst, performance.now())
-          var response = { url: context.url, data: data }
-          callbacks.onSuccess(response, stats, context)
-        })
+        }
+        stats.loaded = stats.total = len
+        stats.tload = Math.max(stats.tfirst, performance.now())
+        debug('performance: ', performance.now())
+
+        var response = { url: context.url, data: data }
+        callbacks.onSuccess(response, stats, context)
       })
+      // })
     } else {
       this.getFileXHR(this.hash, filename)
     }
@@ -66,7 +114,7 @@ class HlsjsIPFSLoader {
 
   getFileXHR (rootHash, filename, callback) {
     // if (!callback) callback = function (err, res) {}
-    console.log('XHR hash for \'' + rootHash + '/' + filename + '\'')
+    debug('XHR hash for \'' + rootHash + '/' + filename + '\'')
 
     let xhr = new XMLHttpRequest()
     let context = this.context
@@ -113,7 +161,7 @@ class HlsjsIPFSLoader {
         let status = xhr.status;
         // http status between 200 to 299 are all successful
         if (status >= 200 && status < 300)  {
-          stats.tload = Math.max(stats.tfirst,performance.now())
+          stats.tload = Math.max(stats.tfirst, performance.now())
           let data,len
           if (context.responseType === 'arraybuffer') {
             data = xhr.response
@@ -152,6 +200,12 @@ class HlsjsIPFSLoader {
 
   loadtimeout () {
     console.warn(`timeout while loading ${this.context.url}`)
+    this.emitter.emit('loader-status', {
+      timestamp: Date.now(),
+      event: 'timeout',
+      stats: this.stats,
+      context: this.context
+    })
     this.callbacks.onTimeout(this.stats, this.context, null)
   }
 
@@ -165,6 +219,12 @@ class HlsjsIPFSLoader {
     }
     let onProgress = this.callbacks.onProgress
     if (onProgress) {
+      this.emitter.emit('loader-status', {
+        timestamp: Date.now(),
+        event: 'progress',
+        stats: stats,
+        context: this.context
+      })
       // third arg is to provide on progress data
       onProgress(stats, this.context, null, xhr)
     }
@@ -177,14 +237,36 @@ class HlsjsIPFSLoader {
     }
 
     if (this.DAG && this.DAG !== null) {
+      debug('dag is already availlable')
       return callback(null, this.DAG)
     }
-    console.log('getting Object DAG ' + this.hash)
+    // console.log('getting Object DAG ' + this.hash)
     this.ipfs.object.get(this.hash, (err, res) => {
       if (err) throw err
       this.DAG = res.links
+      this.emitter.emit('loader-status', {
+        timestamp: Date.now(),
+        event: 'DAG',
+        DAG: res.links
+      })
 
       callback(null, res.links)
+    })
+  }
+
+  getPeersArray (callback) {
+    if (!callback) callback = () => {}
+    if (!this.ipfs) {
+      return callback(null)
+    }
+
+    this.ipfs.swarm.peers((err, peers) => {
+      if (err) {
+        return callback(err)
+      }
+
+      this.peers = peers
+      callback(null, peers)
     })
   }
 
@@ -211,38 +293,69 @@ class HlsjsIPFSLoader {
 
   catFile (filename, callback) {
     if (!callback) callback = () => {}
-    var {hash, fileSize, fileName} = this.getFileInfo(filename)
+    // var {hash, fileSize, fileName} = this.getFileInfo(filename)
 
-    console.log('Fetching hash for \'' + this.hash + '/' + filename + '\'')
+    debug('Fetching hash for \'' + filename + '\'')
 
-    if (!hash) {
-      var msg = 'File not found: ' + this.hash + '/' + filename
-      return callback(new Error(msg), null)
-    }
+    // if (!hash) {
+    //   var msg = 'File not found: ' + this.hash + '/' + filename
+    //   return callback(new Error(msg), null)
+    // }
 
-    console.log('Requesting \'' + this.hash + '/' + filename + '\'')
+    debug('Requesting \'' + filename + '\'')
 
-    var resBuf = new ArrayBuffer(fileSize)
-    var bufView = new Uint8Array(resBuf)
+    var resBuf = null
+    // var bufView = new Uint8Array()
     var offs = 0
+    // var ss = new StreamSpeed()
 
-    this.ipfs.files.cat(hash, (err, stream) => {
-      console.log('Received stream for file \'' + this.hash + '/' + fileName + '\'')
-      if (err) return callback(err)
-      stream.on('data', (chunk) => {
-        console.log('Received ' + chunk.length + ' bytes for file \'' +
-          this.hash + '/' + fileName + '\'')
-        bufView.set(chunk, offs)
-        offs += chunk.length
+    this.stream = this.ipfs.files.catReadableStream(filename)
+    debug('this.stream : ', this.stream)
+    // this.ipfs.files.cat(hash, (err, stream) => {
+    //   // ss.add(stream)
+    //   //
+    //   // // Listen for events emitted by streamspeed on the given stream.
+    //   // ss.on('speed', (speed, avgSpeed) => {
+    //   //   console.log('Reading at', speed, 'bytes per second')
+    //   //   // performance.speed = speed
+    //   //
+    //   //   this.emitter.emit('loader-status', {
+    //   //     timestamp: Date.now(),
+    //   //     event: 'speed',
+    //   //     speed: speed,
+    //   //     avgSpeed: avgSpeed
+    //   //   })
+    //   // })
+    //
+    //   console.log('Received stream for file \'' + this.hash + '/' + fileName + '\'')
+    //   if (err) return callback(err)
+    // })
+    this.stream.on('data', (chunk) => {
+      debug('Received ' + chunk.length + ' bytes for file \'' +
+      filename + '\'')
+      if (Buffer.isBuffer(resBuf)) {
+        resBuf = Buffer.concat([resBuf, chunk])
+      } else {
+        resBuf = Buffer.from(chunk)
+      }
+      // bufView.set(chunk, offs)
+      offs += chunk.length
+      this.loadprogress({
+        currentTarget: filename,
+        loaded: offs
       })
+    })
 
-      stream.on('error', (err) => {
-        callback(err, null)
-      })
+    // stream.on('data', this.loadprogress.bind(this))
 
-      stream.on('end', () => {
-        callback(null, resBuf)
-      })
+    this.stream.on('error', (err) => {
+      debug('stream error ', err)
+      callback(err, null)
+    })
+
+    this.stream.on('end', () => {
+      debug('STREAM ENDED, resBuf Length: ', resBuf)
+      callback(null, resBuf)
     })
   }
 }
